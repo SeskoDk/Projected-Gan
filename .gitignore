@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+data
+projected_gan/gen_data
+projected_gan/runs
+projected_gan/trained_model
+
+
 # C extensions
 *.so
 
