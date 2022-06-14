@@ -24,17 +24,16 @@ warnings.simplefilter("ignore", UserWarning)
 
 class ProjectedGan:
     def __init__(self,
-                 img_dir="../data/pokemon",
-                 image_class="pokemon",
-                 batch_size=16,
-                 n_th_images=4,
-                 num_epochs=500,
-                 latent_dim=100,
-                 image_size=256,
-                 learning_rate=0.0002,
-                 log_every_n_th_step=2,
+                 img_dir: str = "../data/pokemon",
+                 image_class: str = "pokemon",
+                 batch_size: int = 8,
+                 n_th_images: int = 4,
+                 num_epochs: int = 50,
+                 latent_dim: int = 100,
+                 image_size: int = 256,
+                 learning_rate: float = 0.0002,
+                 log_every_n_th_step: int = 2,
                  MIME_Type: str = "png",
-                 device="cuda" if torch.cuda.is_available() else "cpu"
                  ):
 
         # Hyperparameters
@@ -47,26 +46,25 @@ class ProjectedGan:
         self.image_size = image_size
         self.learning_rate = learning_rate
         self.log_every_n_th_step = log_every_n_th_step
-        self.device = device
-
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.gen_data_path = None
 
         # Models
-        self.G = Generator().to(device)
-        self.D = ProjectedDiscriminator().to(device)
+        self.G = Generator().to(self.device)
+        self.D = ProjectedDiscriminator().to(self.device)
 
         self.optimizerG = Adam(self.G.parameters(), lr=learning_rate)
         self.optimizerD = Adam(self.D.discriminator.parameters(), lr=learning_rate, weight_decay=1e-5)
 
-        transform = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))])
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+        ])
         self.dataset = ImageDataset(root_dir=img_dir, transform=transform, RGB=True, MIME_Type=MIME_Type)
         self.train_data = DataLoader(self.dataset, batch_size=batch_size, drop_last=True)
 
     def log_generator(self, G, final_time):
-
-        generator_name = "ProjGan_" + self.image_class
-        generator_name = datetime.now().strftime(generator_name, "_%Y_%H_%M_%S")
+        generator_name = datetime.now().strftime("ProjGan_" + self.image_class + "_%Y_%H_%M_%S")
 
         log_fh = {'Generator': generator_name,
                   'Runtime in hours': final_time / 3600,
@@ -79,7 +77,7 @@ class ProjectedGan:
         path = Path("trained_model")
         path.mkdir(exist_ok=True)
         gen_path = path / f"{generator_name}.pth"
-        torch.save(G, gen_path)
+        torch.save(G.state_dict(), gen_path)
 
         # save config of Generator
         config_path = path / f'{generator_name}.json'
@@ -90,11 +88,13 @@ class ProjectedGan:
                       gen_dir: str = "gen_data",
                       grid: bool = False,
                       batch: int = 1,
-                      n_images: int = 50,
-                      model_path: str = None,
+                      n_images: int = 10,
+                      model_path: str = "trained_model/ProjGan_pokemon_2022_22_33_44.pth",
                       image_class: str = "pokemon", ):
 
-        G = torch.load(model_path).to(self.device)
+        weights = torch.load(model_path)
+        self.G.load_state_dict(weights)
+        self.G.eval()
 
         gen_dir = Path(gen_dir)
         gen_dir.mkdir(exist_ok=True)
@@ -111,7 +111,7 @@ class ProjectedGan:
 
             z = torch.randn(batch, self.latent_dim, device=self.device)
 
-            gen_imgs = G(z).cpu().detach()
+            gen_imgs = self.G(z).cpu().detach()
             grid = make_grid(gen_imgs, nrow=nrow)
             grid = grid * 0.5 + 0.5
             grid = torch.clamp(grid, min=0.0, max=1.0)
@@ -120,23 +120,31 @@ class ProjectedGan:
 
             plt.imsave(img_path, grid)
 
-    def calculate_fid_score(self, G, n_samples, batch_size=50, dims=2048, num_workers=2):
+    def calculate_fid_score(self,
+                            model_path: str = "trained_model/ProjGan_pokemon_2022_22_33_44.pth",
+                            n_samples: int = 50,
+                            batch_size: int = 50,
+                            dims: int = 2048,
+                            num_workers: int = 2):
+
+        weights = torch.load(model_path)
+        self.G.load_state_dict(weights)
+        self.G.eval()
 
         gen_dataset = "fid_gen_data_set"
         fid_gen_folder = Path(gen_dataset)
-
         if fid_gen_folder.exists():
             shutil.rmtree(fid_gen_folder)
         fid_gen_folder.mkdir(exist_ok=True)
 
         true_dataset = self.img_dir
 
-        for i in tqdm(range(n_samples), total=n_samples):
+        for i in tqdm(range(n_samples), total=n_samples, desc="Generating FID images"):
             img_name = str(i).zfill(3) + ".png"
             img_path = fid_gen_folder / img_name
 
             z = torch.randn(1, self.latent_dim, device=self.device)
-            gen_img = G(z).cpu().detach()
+            gen_img = self.G(z).cpu().detach()
             gen_img = gen_img * 0.5 + 0.5
             gen_img = torch.clamp(gen_img[0], min=0.0, max=1.0).permute(1, 2, 0).numpy()
             plt.imsave(img_path, gen_img)
@@ -152,19 +160,16 @@ class ProjectedGan:
         return fid_value
 
     def train(self):
-
         writer = SummaryWriter()
-
         self.G.train(True)
         self.D.train(True)
-
         start_time = time.time()
 
-        for i, epoch in enumerate(tqdm(range(self.num_epochs), leave=True)):
+        for i, epoch in tqdm(enumerate(range(self.num_epochs)), leave=True, total=self.num_epochs):
             for b_i, (real_imgs, _) in enumerate(self.train_data):
                 real_imgs = real_imgs.to(self.device)
 
-                # start train discriminator
+                # train discriminator
                 z = torch.randn(self.batch_size, self.latent_dim, device=self.device)
                 gen_imgs = self.G(z).detach()
                 logits_real = self.D(real_imgs)
@@ -175,10 +180,10 @@ class ProjectedGan:
                 lossD = lossD_real + lossD_fake
                 lossD.backward()
                 self.optimizerD.step()
-                writer.add_scalar("Discriminator Loss", lossD.cpu().detach().numpy(), i)
-                # end train discriminator
+                lossD_score = lossD.cpu().detach().numpy()
+                writer.add_scalar("Discriminator Loss", lossD_score, i)
 
-                # start train Generator
+                # train Generator
                 z = torch.randn(self.batch_size, self.latent_dim, device=self.device)
                 gen_imgs = self.G(z)
                 logits_fake = self.D(gen_imgs)
@@ -186,9 +191,10 @@ class ProjectedGan:
                 lossG = (-logits_fake).mean()
                 lossG.backward()
                 self.optimizerG.step()
-                writer.add_scalar("Generator loss", lossG.cpu().detach().numpy(), i)
-                # end train Generator
+                lossG_score = lossG.cpu().detach().numpy()
+                writer.add_scalar("Generator loss", lossG_score, i)
 
+                # tensorboard
                 if i % self.log_every_n_th_step == 0:
                     grid = make_grid(gen_imgs, nrow=self.n_th_images)
                     grid = grid * 0.5 + 0.5
@@ -204,19 +210,8 @@ class ProjectedGan:
         print("--End of the training")
 
 
-def train_flowers():
-    PG = ProjectedGan(img_dir="../data/flowers", MIME_Type="jpg")
-    PG.train()
-    pass
-
-
 if __name__ == "__main__":
-    model_path = "trained_model/ProjGan_2022_03_02_17.pth"
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    G = torch.load(model_path).to(device)
-    #
     PG = ProjectedGan()
-    # # PG.train()
-    # # print(PG.calculate_fid_score(G, n_samples=50))
-    PG.create_images(grid=True, batch=16, model_path=model_path, n_images=75)
-    # train_flowers()
+    # PG.train()
+    # PG.create_images()
+    print(PG.calculate_fid_score())
