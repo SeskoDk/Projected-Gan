@@ -1,16 +1,20 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
+# folder
 data
 projected_gan/gen_data
 projected_gan/runs
 projected_gan/trained_model
 
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
 
 # C extensions
 *.so
+
+
+# model
+efficientnet_lite1.pth
 
 # Distribution / packaging
 .Python

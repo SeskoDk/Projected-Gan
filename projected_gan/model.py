@@ -17,8 +17,6 @@ from FID.fid_score import calculate_fid_given_paths
 from generator.FastGan import Generator
 from discriminator.discriminator import ProjectedDiscriminator
 
-
-
 import warnings
 
 warnings.simplefilter("ignore", UserWarning)
@@ -28,13 +26,14 @@ class ProjectedGan:
     def __init__(self,
                  img_dir="../data/pokemon",
                  image_class="pokemon",
-                 batch_size=4,
+                 batch_size=16,
                  n_th_images=4,
-                 num_epochs=10,
+                 num_epochs=500,
                  latent_dim=100,
                  image_size=256,
                  learning_rate=0.0002,
                  log_every_n_th_step=2,
+                 MIME_Type: str = "png",
                  device="cuda" if torch.cuda.is_available() else "cpu"
                  ):
 
@@ -59,17 +58,17 @@ class ProjectedGan:
         self.optimizerG = Adam(self.G.parameters(), lr=learning_rate)
         self.optimizerD = Adam(self.D.discriminator.parameters(), lr=learning_rate, weight_decay=1e-5)
 
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))])
-        self.dataset = ImageDataset(root_dir=img_dir, transform=transform, RGB=True)
+        transform = transforms.Compose(
+            [transforms.ToTensor(), transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))])
+        self.dataset = ImageDataset(root_dir=img_dir, transform=transform, RGB=True, MIME_Type=MIME_Type)
         self.train_data = DataLoader(self.dataset, batch_size=batch_size, drop_last=True)
 
-    def log_generator(self, G, final_time, fid_score):
+    def log_generator(self, G, final_time):
 
-        generator_name = "ProjGan_%.2f" % fid_score
-        generator_name = datetime.now().strftime(generator_name + "_%Y_%H_%M_%S")
+        generator_name = "ProjGan_" + self.image_class
+        generator_name = datetime.now().strftime(generator_name, "_%Y_%H_%M_%S")
 
         log_fh = {'Generator': generator_name,
-                  'fid_score': fid_score,
                   'Runtime in hours': final_time / 3600,
                   'batch_size': self.batch_size,
                   'num_epochs': self.num_epochs,
@@ -83,7 +82,7 @@ class ProjectedGan:
         torch.save(G, gen_path)
 
         # save config of Generator
-        config_path = path / f'{generator_name}.txt'
+        config_path = path / f'{generator_name}.json'
         with open(config_path, 'w') as fh:
             fh.write(json.dumps(log_fh))
 
@@ -92,7 +91,7 @@ class ProjectedGan:
                       grid: bool = False,
                       batch: int = 1,
                       n_images: int = 50,
-                      model_path: str = "trained_model/POKEMON_GENERATOR_2022_17_05_45.pth",
+                      model_path: str = None,
                       image_class: str = "pokemon", ):
 
         G = torch.load(model_path).to(self.device)
@@ -111,8 +110,8 @@ class ProjectedGan:
             img_path = self.gen_data_path / img_name
 
             z = torch.randn(batch, self.latent_dim, device=self.device)
-            gen_imgs = G(z).cpu().detach()
 
+            gen_imgs = G(z).cpu().detach()
             grid = make_grid(gen_imgs, nrow=nrow)
             grid = grid * 0.5 + 0.5
             grid = torch.clamp(grid, min=0.0, max=1.0)
@@ -121,8 +120,7 @@ class ProjectedGan:
 
             plt.imsave(img_path, grid)
 
-
-    def calculate_fid_score(self, G, n_sampels):
+    def calculate_fid_score(self, G, n_samples, batch_size=50, dims=2048, num_workers=2):
 
         gen_dataset = "fid_gen_data_set"
         fid_gen_folder = Path(gen_dataset)
@@ -133,7 +131,7 @@ class ProjectedGan:
 
         true_dataset = self.img_dir
 
-        for i in range(n_sampels):
+        for i in tqdm(range(n_samples), total=n_samples):
             img_name = str(i).zfill(3) + ".png"
             img_path = fid_gen_folder / img_name
 
@@ -145,10 +143,10 @@ class ProjectedGan:
 
         paths = [str(fid_gen_folder), true_dataset]
         fid_value = calculate_fid_given_paths(paths,
-                                              batch_size=50,
+                                              batch_size=batch_size,
                                               device=self.device,
-                                              dims=2048,
-                                              num_workers=2)
+                                              dims=dims,
+                                              num_workers=num_workers)
 
         shutil.rmtree(fid_gen_folder)
         return fid_value
@@ -161,9 +159,6 @@ class ProjectedGan:
         self.D.train(True)
 
         start_time = time.time()
-
-        best_fid_score = float("inf")
-        best_generator = None
 
         for i, epoch in enumerate(tqdm(range(self.num_epochs), leave=True)):
             for b_i, (real_imgs, _) in enumerate(self.train_data):
@@ -201,23 +196,27 @@ class ProjectedGan:
                     grid = grid.cpu().detach().numpy()
                     writer.add_image(tag="GenImages", img_tensor=grid, global_step=i)
 
-            if epoch % 10 == 0:
-                current_fid_score = self.calculate_fid_score(self.G, n_sampels=100)
-                if current_fid_score < best_fid_score:
-                    best_fid_score = current_fid_score
-                    best_generator = self.G
-
         writer.close()
         end_time = time.time()
         final_time = end_time - start_time
 
-        print("Calculating final FID-Score")
-        final_fid_score = self.calculate_fid_score(best_generator, n_sampels=self.dataset.__len__())
-        self.log_generator(best_generator, final_time, final_fid_score)
-        print("--end")
+        self.log_generator(self.G, final_time)
+        print("--End of the training")
+
+
+def train_flowers():
+    PG = ProjectedGan(img_dir="../data/flowers", MIME_Type="jpg")
+    PG.train()
+    pass
 
 
 if __name__ == "__main__":
+    model_path = "trained_model/ProjGan_2022_03_02_17.pth"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    G = torch.load(model_path).to(device)
+    #
     PG = ProjectedGan()
-    PG.train()
-    # PG.create_images(model_path="trained_model/ProjGan_340.50_2022_21_17_51.pth")
+    # # PG.train()
+    # # print(PG.calculate_fid_score(G, n_samples=50))
+    PG.create_images(grid=True, batch=16, model_path=model_path, n_images=75)
+    # train_flowers()
