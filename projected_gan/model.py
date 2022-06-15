@@ -13,7 +13,7 @@ from DatasetClass import ImageDataset
 from torchvision.utils import make_grid
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from FID.fid_score import calculate_fid_given_paths
+from pytorch_fid.fid_score import calculate_fid_given_paths
 from generator.FastGan import Generator
 from discriminator.discriminator import ProjectedDiscriminator
 
@@ -122,24 +122,24 @@ class ProjectedGan:
 
     def calculate_fid_score(self,
                             model_path: str = "trained_model/ProjGan_pokemon_2022_22_33_44.pth",
-                            n_samples: int = 50,
+                            n_samples: int = 819,
                             batch_size: int = 50,
                             dims: int = 2048,
-                            num_workers: int = 2):
+                            num_workers: int = 0):
 
         weights = torch.load(model_path)
         self.G.load_state_dict(weights)
+        self.G.to(self.device)
         self.G.eval()
 
-        gen_dataset = "fid_gen_data_set"
+        gen_dataset = "fid_data_set"
         fid_gen_folder = Path(gen_dataset)
         if fid_gen_folder.exists():
             shutil.rmtree(fid_gen_folder)
         fid_gen_folder.mkdir(exist_ok=True)
 
-        true_dataset = self.img_dir
 
-        for i in tqdm(range(n_samples), total=n_samples, desc="Generating FID images"):
+        for i in tqdm(range(n_samples), total=n_samples, desc="Generating pytorch_fid images"):
             img_name = str(i).zfill(3) + ".png"
             img_path = fid_gen_folder / img_name
 
@@ -149,12 +149,8 @@ class ProjectedGan:
             gen_img = torch.clamp(gen_img[0], min=0.0, max=1.0).permute(1, 2, 0).numpy()
             plt.imsave(img_path, gen_img)
 
-        paths = [str(fid_gen_folder), true_dataset]
-        fid_value = calculate_fid_given_paths(paths,
-                                              batch_size=batch_size,
-                                              device=self.device,
-                                              dims=dims,
-                                              num_workers=num_workers)
+        paths = [str(fid_gen_folder), self.img_dir]
+        fid_value = calculate_fid_given_paths(paths, batch_size=batch_size, device="cuda", dims=dims, num_workers=num_workers)
 
         shutil.rmtree(fid_gen_folder)
         return fid_value
@@ -212,6 +208,7 @@ class ProjectedGan:
 
 if __name__ == "__main__":
     PG = ProjectedGan()
-    # PG.train()
-    # PG.create_images()
-    print(PG.calculate_fid_score())
+    # # PG.train()
+    # PG.create_images(n_images=819)
+    FID_score = PG.calculate_fid_score()
+    print(FID_score)

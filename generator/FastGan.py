@@ -151,26 +151,32 @@ class Generator(nn.Module):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
+    from tqdm import tqdm
+    import numpy as np
 
-    batch_size = 4
+    batch_size = 1
     latent_dim = 100
     z = torch.randn(batch_size, latent_dim)
     G = Generator()
-    print(G)
-    gen_imgs = G(z).detach()
+    device = "cuda"
+    G.to(device)
+    # print(G)
+
+    # gen_imgs = G(z).detach()
+
     # z = torch.Tensor(1, 100)
-    gen_imgs = gen_imgs.permute(0, 2, 3, 1)
-
-    img = gen_imgs[0].cpu()
-
-    r_img = (img - torch.min(img)) / (torch.max(img) - torch.min(img))
-    z_img = img * 0.5 + 0.5
-
-    z_img = torch.clamp(z_img, min=0.0, max=1.0).numpy()
-    r_img = torch.clamp(r_img, min=0.0, max=1.0).numpy()
-
-    plt.imshow(z_img)
-    plt.show()
-
-    plt.imshow(r_img)
-    plt.show()
+    # gen_imgs = gen_imgs.permute(0, 2, 3, 1)
+    #
+    # img = gen_imgs[0].cpu()
+    #
+    # r_img = (img - torch.min(img)) / (torch.max(img) - torch.min(img))
+    # z_img = img * 0.5 + 0.5
+    #
+    # z_img = torch.clamp(z_img, min=0.0, max=1.0).numpy()
+    # r_img = torch.clamp(r_img, min=0.0, max=1.0).numpy()
+    #
+    # plt.imshow(z_img)
+    # plt.show()
+    #
+    # plt.imshow(r_img)
+    # plt.show()
