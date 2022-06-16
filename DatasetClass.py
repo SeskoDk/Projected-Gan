@@ -29,7 +29,7 @@ class ImageDataset(Dataset):
         file_path = []
         for f in Path(self.root_dir).rglob(f"*.{self.MIME_Type}"):
             file_path.append(f)
-        return file_path
+        return file_path[:20]
 
     def _preload_images(self) -> List[np.asarray]:
         image_files = self._load_image_path()

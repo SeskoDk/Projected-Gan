@@ -115,14 +115,15 @@ def get_activations(files, model, batch_size=50, dims=2048, device='cuda',
                'Setting batch size to data size'))
         batch_size = len(files)
 
-    dataset = ImagePathDataset(files, transforms=TF.ToTensor())
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers)
+    dataset = ImagePathDataset(files[:15], transforms=TF.ToTensor())
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+                                             shuffle=False, drop_last=False, num_workers=num_workers)
 
     pred_arr = np.empty((len(files), dims))
 
     start_idx = 0
 
-    for batch in tqdm(dataloader):
+    for batch in tqdm(dataloader, desc="Calculating FID-Score"):
         batch = batch.to(device)
 
         with torch.no_grad():
