@@ -1,19 +1,15 @@
 import shutil
-import time
-import json
 import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 from pathlib import Path
 from torch.optim import Adam
-from datetime import datetime
 import torch.nn.functional as F
 from torchvision import transforms
 from DatasetClass import ImageDataset
 from torchvision.utils import make_grid
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from pytorch_fid.fid_score import calculate_fid_given_paths
 from generator.FastGan import Generator
 from discriminator.discriminator import ProjectedDiscriminator
 from pytorch_fid.FID_datasetClass import FIDDataset
@@ -33,7 +29,7 @@ class ProjectedGan:
                  image_class: str = "pokemon",
                  batch_size: int = 4,
                  n_th_images: int = 4,
-                 num_epochs: int = 5,
+                 num_epochs: int = 100,
                  latent_dim: int = 100,
                  image_size: int = 256,
                  learning_rate: float = 0.0002,
@@ -57,7 +53,7 @@ class ProjectedGan:
         self.log_every_n_th_step = log_every_n_th_step
         self.log_every_n_th_epoch = log_every_n_th_epoch
         self.start_epoch = start_epoch
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cpu" #"cuda" if torch.cuda.is_available() else "cpu"
         self.gen_data_path = None
         self.dims = dims
         self.num_workers = num_workers
@@ -83,26 +79,6 @@ class ProjectedGan:
         self.dataset = ImageDataset(root_dir=img_dir, transform=transform, RGB=True, MIME_Type=MIME_Type)
         self.train_data = DataLoader(self.dataset, batch_size=batch_size, drop_last=True)
 
-    def log_generator(self, G, final_time):
-        generator_name = datetime.now().strftime("ProjGan_" + self.image_class + "_%Y_%H_%M_%S")
-
-        log_fh = {'Generator': generator_name,
-                  'Runtime in hours': final_time / 3600,
-                  'batch_size': self.batch_size,
-                  'num_epochs': self.num_epochs,
-                  'learning_rate': self.learning_rate,
-                  'n_images': self.dataset.__len__()}
-
-        # save Generator
-        path = Path("trained_model")
-        path.mkdir(exist_ok=True)
-        gen_path = path / f"{generator_name}.pth"
-        torch.save(G.state_dict(), gen_path)
-
-        # save config of Generator
-        config_path = path / f'{generator_name}.json'
-        with open(config_path, 'w') as fh:
-            fh.write(json.dumps(log_fh))
 
     def create_images(self,
                       gen_dir: str = "gen_data",
@@ -140,48 +116,14 @@ class ProjectedGan:
 
             plt.imsave(img_path, grid)
 
-    def calculate_fid_score(self,
-                            model_path: str = "trained_model/ProjGan_pokemon_2022_22_33_44.pth",
-                            n_samples: int = 819,
-                            batch_size: int = 50,
-                            dims: int = 2048,
-                            num_workers: int = 0):
-
-        weights = torch.load(model_path)
-        self.G.load_state_dict(weights)
-        self.G.to(self.device)
-        self.G.eval()
-
-        gen_dataset = "fid_data_set"
-        fid_gen_folder = Path(gen_dataset)
-        if fid_gen_folder.exists():
-            shutil.rmtree(fid_gen_folder)
-        fid_gen_folder.mkdir(exist_ok=True)
-
-        for i in tqdm(range(n_samples), total=n_samples, desc="Generating pytorch_fid images"):
-            img_name = str(i).zfill(3) + ".png"
-            img_path = fid_gen_folder / img_name
-
-            z = torch.randn(1, self.latent_dim, device=self.device)
-            gen_img = self.G(z).cpu().detach()
-            gen_img = gen_img * 0.5 + 0.5
-            gen_img = torch.clamp(gen_img[0], min=0.0, max=1.0).permute(1, 2, 0).numpy()
-            plt.imsave(img_path, gen_img)
-
-        paths = [str(fid_gen_folder), self.img_dir]
-        fid_value = calculate_fid_given_paths(paths, batch_size=batch_size, device="cuda", dims=dims,
-                                              num_workers=num_workers)
-
-        shutil.rmtree(fid_gen_folder)
-        return fid_value
 
     def calc_mu_std_of_real_data(self):
-        m2, s2 = compute_statistics_of_path(self.img_dir,
-                                            self.inception_model,
-                                            self.batch_size,
-                                            self.dims,
-                                            self.device,
-                                            self.num_workers)
+        m2, s2 = compute_statistics_of_path(path=self.img_dir,
+                                            model=self.inception_model,
+                                            batch_size=50,
+                                            dims=self.dims,
+                                            device=self.device,
+                                            num_workers=self.num_workers)
         return m2, s2
 
 
@@ -200,12 +142,11 @@ class ProjectedGan:
 
     def train(self):
         writer = SummaryWriter()
-        self.G.train(True)
-        self.D.train(True)
-        start_time = time.time()
-
         images_for_fid = []
         best_fid_score = float("inf")
+
+        self.G.train(True)
+        self.D.train(True)
         for epoch in tqdm(range(self.num_epochs), leave=True, total=self.num_epochs, desc="Training"):
             for b_i, (real_imgs, _) in enumerate(self.train_data):
                 real_imgs = real_imgs.to(self.device)
@@ -220,19 +161,10 @@ class ProjectedGan:
                 logits_real = self.D(real_imgs)
                 logits_fake = self.D(gen_imgs)
 
+                self.optimizerD.zero_grad()
                 lossD_fake = (F.relu(torch.ones_like(logits_fake) + logits_fake)).mean()
                 lossD_real = (F.relu(torch.ones_like(logits_real) - logits_real)).mean()
                 lossD = lossD_real + lossD_fake
-
-                def mem_info():
-                    malloc = torch.cuda.memory_allocated()
-                    mres = torch.cuda.memory_reserved()
-                    print(malloc / 1e9, mres / 1e9)
-
-                import pdb;
-                pdb.set_trace()
-
-                self.optimizerD.zero_grad()
                 lossD.backward()
                 self.optimizerD.step()
                 lossD_score = lossD.cpu().detach().numpy()
@@ -243,19 +175,13 @@ class ProjectedGan:
                 # train Generator
                 z = torch.randn(self.batch_size, self.latent_dim, device=self.device)
                 gen_imgs = self.G(z)
-                for param in self.D.parameters():
-                    param.requires_grad = False
-
                 logits_fake = self.D(gen_imgs)
                 self.optimizerG.zero_grad()
                 lossG = (-logits_fake).mean()
                 lossG.backward()
                 self.optimizerG.step()
+
                 lossG_score = lossG.cpu().detach().numpy()
-
-                for param in self.D.parameters():
-                    param.requires_grad = True
-
 
                 # tensorboard
                 if b_i % self.log_every_n_th_step == 0:
@@ -270,16 +196,18 @@ class ProjectedGan:
                 writer.add_image(tag="GenImages", img_tensor=grid, global_step=epoch)
 
             if epoch % self.log_every_n_th_epoch == 0 and epoch >= self.start_epoch:
+
                 start_idx = 0
                 images_for_fid = torch.cat(images_for_fid, axis=0)  # NxCxHxW
                 fid_dataset = FIDDataset(files=images_for_fid)
-                fid_loader = DataLoader(fid_dataset, batch_size=self.batch_size,
+                fid_loader = DataLoader(fid_dataset,
+                                        batch_size=self.batch_size,
                                         shuffle=False,
-                                        drop_last=False, num_workers=self.num_workers)
+                                        drop_last=False,
+                                        num_workers=self.num_workers)
 
                 pred_arr = np.empty((len(images_for_fid), self.dims))
-
-                for batch in tqdm(fid_loader):
+                for batch in fid_loader:
                     batch = batch.to(self.device)
 
                     with torch.no_grad():
@@ -307,16 +235,8 @@ class ProjectedGan:
                 images_for_fid = []
 
         writer.close()
-        end_time = time.time()
-        final_time = end_time - start_time
-
-        self.log_generator(self.G, final_time)
-        print("--End of the training")
 
 
 if __name__ == "__main__":
     PG = ProjectedGan()
     PG.train()
-    # PG.create_images(n_images=819)
-    FID_score = PG.calculate_fid_score()
-    print(FID_score)

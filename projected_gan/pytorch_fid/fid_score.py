@@ -87,7 +87,7 @@ class ImagePathDataset(torch.utils.data.Dataset):
         return img
 
 
-def get_activations(files, model, batch_size=50, dims=2048, device='cuda',
+def get_activations(files, model, batch_size=50, dims=2048, device='cpu',
                     num_workers=1):
     """Calculates the activations of the pool_3 layer for all images.
 
@@ -116,8 +116,11 @@ def get_activations(files, model, batch_size=50, dims=2048, device='cuda',
         batch_size = len(files)
 
     dataset = ImagePathDataset(files[:15], transforms=TF.ToTensor())
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
-                                             shuffle=False, drop_last=False, num_workers=num_workers)
+    dataloader = torch.utils.data.DataLoader(dataset,
+                                             batch_size=batch_size,
+                                             shuffle=False,
+                                             drop_last=False,
+                                             num_workers=num_workers)
 
     pred_arr = np.empty((len(files), dims))
 
@@ -283,3 +286,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
