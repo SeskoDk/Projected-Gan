@@ -53,7 +53,7 @@ class ProjectedGan:
         self.log_every_n_th_step = log_every_n_th_step
         self.log_every_n_th_epoch = log_every_n_th_epoch
         self.start_epoch = start_epoch
-        self.device = "cpu" #"cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.gen_data_path = None
         self.dims = dims
         self.num_workers = num_workers
@@ -64,7 +64,8 @@ class ProjectedGan:
         self.D = ProjectedDiscriminator().to(self.device)
 
         block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[self.dims]
-        self.inception_model = InceptionV3([block_idx]).to(self.device)
+        self.fid_device = "cpu"
+        self.inception_model = InceptionV3([block_idx]).to(self.fid_device)
         self.inception_model.eval()
 
         self.m2, self.s2 = self.calc_mu_std_of_real_data()
@@ -122,7 +123,7 @@ class ProjectedGan:
                                             model=self.inception_model,
                                             batch_size=50,
                                             dims=self.dims,
-                                            device=self.device,
+                                            device=self.fid_device,
                                             num_workers=self.num_workers)
         return m2, s2
 
@@ -208,7 +209,7 @@ class ProjectedGan:
 
                 pred_arr = np.empty((len(images_for_fid), self.dims))
                 for batch in fid_loader:
-                    batch = batch.to(self.device)
+                    batch = batch.to(self.fid_device)
 
                     with torch.no_grad():
                         pred = self.inception_model(batch)[0]
