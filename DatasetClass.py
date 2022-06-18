@@ -15,7 +15,7 @@ class ImageDataset(Dataset):
                  root_dir: str = "data/pokemon",
                  transform: transforms.Compose = None,
                  RGB: bool = True,
-                 preload: bool = True,
+                 preload: bool = False,
                  MIME_Type: str = "png") -> None:
 
         self.RGB = RGB
@@ -29,7 +29,7 @@ class ImageDataset(Dataset):
         file_path = []
         for f in Path(self.root_dir).rglob(f"*.{self.MIME_Type}"):
             file_path.append(f)
-        return file_path[:50]
+        return file_path
 
     def _preload_images(self) -> List[np.asarray]:
         image_files = self._load_image_path()
@@ -64,7 +64,7 @@ if __name__ == "__main__":
         transforms.Normalize(mean=0.5, std=0.5),
     ])
 
-    dataset = ImageDataset(transform=transform, RGB=True)
+    dataset = ImageDataset(root_dir="../data/flowers", transform=transform,preload=False, RGB=True, MIME_Type="jpg")
     train_loader = DataLoader(dataset, batch_size=32)
     images, _ = next(iter(train_loader))
     img = images[0].detach().permute(1, 2, 0).numpy()
